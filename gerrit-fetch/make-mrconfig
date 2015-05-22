@@ -1,0 +1,69 @@
+#!/bin/bash
+set -e
+
+# Strongly adapted from Debian Ruby Team
+# http://anonscm.debian.org/gitweb/?p=pkg-ruby-extras/pkg-ruby-extras.git;a=blob;f=make-mrconfig
+
+function msg() {
+    echo "I: $1"
+}
+
+function output() {
+    echo "$1" >> $OUTPUT
+}
+
+msg "Setting up output file"
+OUTPUT="$1"
+if [ -z "$OUTPUT" ] ; then
+    OUTPUT=".mrconfig"
+fi
+
+msg "Retrieving puppet OpenStack modules list"
+
+# Modules hosted on review.openstack.org
+GIT_PKGS=`ssh review.openstack.org gerrit ls-projects | grep 'stackforge/puppet'| sed 's/^stackforge\///' | LC_ALL=C sort`
+
+msg "Generating mrconfig file in $OUTPUT"
+
+# Backup the output file if it exists
+if [ -f $OUTPUT ]; then
+    mv $OUTPUT ${OUTPUT}\~
+fi
+
+# Setting up mr lib
+output "[DEFAULT]
+lib=
+      msg () {
+        echo \"I: \$1\"
+      }
+      git_checkout () {
+        git clone review.openstack.org:stackforge/\$1.git &&
+        cd \$1 &&
+        { test -z \"\$OSFULLNAME\" || git config user.name \"\$OSFULLNAME\" || true; } &&
+        { test -z \"\$OSEMAIL\" || git config user.email \"\$OSEMAIL\" || true; } &&
+        git-review -s
+      }
+"
+
+# Sections for Git repositories
+for i in $GIT_PKGS; do
+    output "[$i]
+checkout = git_checkout $i
+"
+done
+
+# Warn if changes have been made
+if which colordiff >/dev/null; then
+  diff=colordiff
+else
+  diff=diff
+fi
+if [ -f ${OUTPUT}\~ ] && $diff -u ${OUTPUT}\~ ${OUTPUT}; then
+    rm ${OUTPUT}\~
+    msg "no changes"
+else
+    msg "$OUTPUT changed!"
+fi
+
+# Finish
+msg "all done, enjoy: mr [checkout,update,...]"
